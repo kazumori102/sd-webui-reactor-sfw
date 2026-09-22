@@ -2,37 +2,33 @@ import gradio as gr
 from scripts.reactor_logger import logger
 from scripts.reactor_helpers import get_models, set_Device
 from scripts.reactor_globals import DEVICE, DEVICE_LIST
-try:
-    import torch.cuda as cuda
-    EP_is_visible = True if cuda.is_available() else False
-except:
-    EP_is_visible = False
 
 def update_models_list(selected: str):
-    return gr.Dropdown.update(
-        value=selected, choices=get_models()
-    )
+    choices = get_models()
+    return gr.update(value=selected if selected in choices else next(iter(choices), None), choices=choices)
 
 def show(hash_check_block: bool = True):
     # TAB SETTINGS
     with gr.Tab("Settings"):
         models = get_models()
-        with gr.Row(visible=EP_is_visible):
+        with gr.Row():
             device = gr.Radio(
                 label="Execution Provider",
                 choices=DEVICE_LIST,
                 value=DEVICE,
                 type="value",
-                info="Click 'Save' to apply. If you already run 'Generate' - RESTART is required: (A1111) Extensions Tab -> 'Apply and restart UI' or (SD.Next) close the Server and start it again",
+                info="Available providers in ONNX Runtime. Save to apply to ReActor; no package changes or server restart required.",
                 scale=2,
             )
             save_device_btn = gr.Button("Save", scale=0)
-        save = gr.Markdown("", visible=EP_is_visible)
+        save = gr.Markdown("")
         setattr(device, "do_not_save_to_config", True)
         save_device_btn.click(
             set_Device,
             inputs=[device],
             outputs=[save],
+            queue=False,
+            api_name=False,
         )
         with gr.Row():
             if len(models) == 0:

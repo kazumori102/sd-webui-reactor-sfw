@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from reactor_modules.reactor_runtime import get_available_devices
 
 try:
     from modules.paths_internal import models_path
@@ -11,7 +12,7 @@ except:
 
 IS_RUN: bool = False
 BASE_PATH = os.path.join(Path(__file__).parents[1])
-DEVICE_LIST: list = ["CPU", "CUDA"]
+DEVICE_LIST: list = get_available_devices()
 
 MODELS_PATH = models_path
 SWAPPER_MODELS_PATH = os.path.join(MODELS_PATH, "insightface")

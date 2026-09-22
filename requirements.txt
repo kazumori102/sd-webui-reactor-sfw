@@ -1,4 +1,13 @@
-albumentations==1.4.3
-insightface==0.7.3
-onnx>=1.17.0
+# Forge Neo requirements: keep installed versions satisfying these minimums.
+# Use install.py to preserve GPU ORT / headless OpenCV variants.
+numpy>=2.3.5
+onnx>=1.22.0
 opencv-python>=4.7.0.72
+# InsightFace 1.x inference dependencies (installed explicitly so that
+# InsightFace cannot pull CPU ORT over an existing GPU distribution).
+tqdm
+requests
+scipy
+scikit-image
+insightface>=1.0.1
+# ORT is selected by install.py. Torch/Gradio/Transformers are supplied by Forge.

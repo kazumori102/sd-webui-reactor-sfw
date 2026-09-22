@@ -16,6 +16,7 @@ import urllib.request
 from modules.images import FilenameGenerator, get_next_sequence_number
 from modules import shared, script_callbacks
 from scripts.reactor_globals import DEVICE, BASE_PATH, FACE_MODELS_PATH, IS_SDNEXT
+from reactor_modules.reactor_runtime import get_providers
 
 try:
     from modules.paths_internal import models_path
@@ -23,15 +24,19 @@ except:
     try:
         from modules.paths import models_path
     except:
-        model_path = os.path.abspath("models")
+        models_path = os.path.abspath("models")
 
 MODELS_PATH = None
 
 def set_Device(value):
     global DEVICE
-    DEVICE = value
+    if value not in ("CPU", "CUDA"):
+        raise ValueError("Execution provider must be CPU or CUDA")
+    get_providers(value)
     with open(os.path.join(BASE_PATH, "last_device.txt"), "w") as txt:
-        txt.write(DEVICE)
+        txt.write(value)
+    DEVICE = value
+    return f"Execution provider saved: {value}"
 
 def get_Device():
     global DEVICE
@@ -229,6 +234,8 @@ def get_images_from_folder(path: str):
 
 def get_random_image_from_folder(path: str):
     images,names = get_images_from_folder(path)
+    if not images:
+        return [], []
     random_image_index = random.randint(0, len(images) - 1)
     return [images[random_image_index]],[names[random_image_index]]
 
@@ -243,23 +250,33 @@ def get_images_from_list(imgs: List):
 
 # ---
 def download(url, path, name):
-    request = urllib.request.urlopen(url)
-    total = int(request.headers.get('Content-Length', 0))
-    with tqdm(total=total, desc=f'[ReActor] Downloading {name} to {path}', unit='B', unit_scale=True, unit_divisor=1024) as progress:
-        urllib.request.urlretrieve(url, path, reporthook=lambda count, block_size, total_size: progress.update(block_size))
+    with urllib.request.urlopen(url) as request:
+        total = int(request.headers.get('Content-Length', 0))
+    temporary_path = f"{path}.part"
+    try:
+        with tqdm(total=total, desc=f'[ReActor] Downloading {name} to {path}', unit='B', unit_scale=True, unit_divisor=1024) as progress:
+            urllib.request.urlretrieve(url, temporary_path, reporthook=lambda count, block_size, total_size: progress.update(block_size))
+        os.replace(temporary_path, path)
+    finally:
+        if os.path.exists(temporary_path):
+            os.remove(temporary_path)
 
 def check_nsfwdet_model(path: str):
-    if not os.path.exists(path):
+    nd_urls = [
+        "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/config.json",
+        "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/confusion_matrix.png",
+        "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/model.safetensors",
+        "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/preprocessor_config.json",
+    ]
+    os.makedirs(path, exist_ok=True)
+    missing = [
+        (model_url, os.path.basename(model_url))
+        for model_url in nd_urls
+        if not os.path.isfile(os.path.join(path, os.path.basename(model_url)))
+    ]
+    if missing:
         print("Downloading `vit-base-nsfw-detector`, please wait...\n")
-        os.makedirs(path)
-        nd_urls = [
-            "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/config.json",
-            "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/confusion_matrix.png",
-            "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/model.safetensors",
-            "https://huggingface.co/AdamCodd/vit-base-nsfw-detector/resolve/main/preprocessor_config.json",
-        ]
-        for model_url in nd_urls:
-            model_name = os.path.basename(model_url)
+        for model_url, model_name in missing:
             model_path = os.path.join(path, model_name)
             download(model_url, model_path, model_name)
 # ---

@@ -28,6 +28,7 @@ import gradio as gr
 from scripts.reactor_swapper import EnhancementOptions, blend_faces, swap_face, DetectionOptions
 from scripts.reactor_logger import logger
 from scripts.reactor_helpers import get_facemodels
+from scripts.reactor_globals import SWAPPER_MODELS_PATH
 
 
 # @asynccontextmanager
@@ -74,7 +75,7 @@ def get_upscaler(name):
     return None
 
 def get_models():
-    models_path = os.path.join(scripts.basedir(), "models/insightface/*")
+    models_path = os.path.join(SWAPPER_MODELS_PATH, "*")
     models = glob.glob(models_path)
     models = [x for x in models if x.endswith(".onnx") or x.endswith(".pth")]
     return models
@@ -150,7 +151,7 @@ def reactor_api(_: gr.Blocks, app: FastAPI):
         det_options = DetectionOptions(det_thresh=det_thresh, det_maxnum=det_maxnum)
         use_model = get_full_model(model)
         if use_model is None:
-            Exception("Model not found")
+            raise ValueError(f"Model not found: {model}")
         
         args = [s_image, t_image, use_model, sf_index, f_index, up_options, gender_s, gender_t, True, True, device, mask_face, select_source, face_model, source_folder, None, random_image,det_options]
         # result,_,_ = pool.map(swap_face, *args)

@@ -11,14 +11,8 @@ from modules import shared
 # SAVE_ORIGINAL: bool = False
 
 def update_fm_list(selected: str):
-    try: # GR3.x
-        return gr.Dropdown.update(
-            value=selected, choices=get_model_names(get_facemodels)
-        )
-    except: # GR4.x
-        return gr.Dropdown(
-            value=selected, choices=get_model_names(get_facemodels)
-        )
+    choices = get_model_names(get_facemodels)
+    return gr.update(value=selected if selected in choices else "None", choices=choices)
 
 # TAB MAIN
 def show(is_img2img: bool, show_br: bool = True, **msgs):
@@ -31,11 +25,11 @@ def show(is_img2img: bool, show_br: bool = True, **msgs):
             #     SAVE_ORIGINAL = selected
             try: # GR3.x
                 return {
-                    control_col_1: gr.Column.update(visible=False),
-                    control_col_2: gr.Column.update(visible=False),
-                    control_col_3: gr.Column.update(visible=True),
+                    control_col_1: gr.update(visible=False),
+                    control_col_2: gr.update(visible=False),
+                    control_col_3: gr.update(visible=True),
                     # save_original: gr.Checkbox.update(value=False,visible=False),
-                    imgs_hash_clear: gr.Button.update(visible=True)
+                    imgs_hash_clear: gr.update(visible=True)
                 }
             except: # GR4.x
                 return {
@@ -48,11 +42,11 @@ def show(is_img2img: bool, show_br: bool = True, **msgs):
         if evt.index == 0:
             try: # GR3.x
                 return {
-                    control_col_1: gr.Column.update(visible=True),
-                    control_col_2: gr.Column.update(visible=False),
-                    control_col_3: gr.Column.update(visible=False),
+                    control_col_1: gr.update(visible=True),
+                    control_col_2: gr.update(visible=False),
+                    control_col_3: gr.update(visible=False),
                     # save_original: gr.Checkbox.update(value=SAVE_ORIGINAL,visible=show_br),
-                    imgs_hash_clear: gr.Button.update(visible=False)
+                    imgs_hash_clear: gr.update(visible=False)
                 }
             except: # GR4.x
                 return {
@@ -65,11 +59,11 @@ def show(is_img2img: bool, show_br: bool = True, **msgs):
         if evt.index == 1:
             try: # GR3.x
                 return {
-                    control_col_1: gr.Column.update(visible=False),
-                    control_col_2: gr.Column.update(visible=True),
-                    control_col_3: gr.Column.update(visible=False),
+                    control_col_1: gr.update(visible=False),
+                    control_col_2: gr.update(visible=True),
+                    control_col_3: gr.update(visible=False),
                     # save_original: gr.Checkbox.update(value=SAVE_ORIGINAL,visible=show_br),
-                    imgs_hash_clear: gr.Button.update(visible=False)
+                    imgs_hash_clear: gr.update(visible=False)
                 }
             except: # GR4.x
                 return {
@@ -119,8 +113,8 @@ def show(is_img2img: bool, show_br: bool = True, **msgs):
             with gr.Column(visible=True) as control_col_1:
                 with gr.Row():
                     selected_tab = gr.Textbox('tab_single', visible=False)
-                    with gr.Tabs() as tab_single:
-                        with gr.Tab('Single'):
+                    with gr.Tabs():
+                        with gr.Tab('Single') as tab_single:
                             img = gr.Image(
                                 type="pil",
                                 label="Single Source Image",
@@ -199,10 +193,11 @@ def show(is_img2img: bool, show_br: bool = True, **msgs):
                 )
             gr.Markdown("<br>", visible=show_br)
             with gr.Row():
+                restorer_choices = ["None"] + [x.name() for x in shared.face_restorers]
                 face_restorer_name = gr.Radio(
                     label="Restore Face",
-                    choices=["None"] + [x.name() for x in shared.face_restorers],
-                    value=shared.face_restorers[0].name(),
+                    choices=restorer_choices,
+                    value=restorer_choices[0],
                     type="value",
                 )
                 with gr.Column():

@@ -8,3 +8,7 @@ __pycache__/
 example
 *.txt
 !requirements.txt
+
+# Isolated verification dependencies and generated artifacts; never loaded by ReActor.
+.test-runtime/
+.test-artifacts/

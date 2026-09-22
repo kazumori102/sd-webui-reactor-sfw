@@ -24,6 +24,8 @@
 
 # ReActor for Stable Diffusion
 
+**この Forge Neo 構成について:** [現在の構成・起動手順・検証方法](docs/forge-neo-compatibility.md)。同梱 Python を使用し、ReActor は CPU で動作します。
+
 ### The Fast and Simple FaceSwap Extension with a lot of improvements and with SFW filter (it has a nudity detector to avoid using this software with 18+ content)
 
 > By using this Node you accept and assume [responsibility](#disclaimer)) 

@@ -1,5 +1,5 @@
-import copy
 import os
+import tempfile
 from dataclasses import dataclass
 from typing import List, Union
 
@@ -38,6 +38,7 @@ from modules.upscaler import UpscalerData
 from modules.shared import state
 from scripts.reactor_logger import logger
 from reactor_modules.reactor_mask import apply_face_mask
+from reactor_modules.reactor_runtime import ReActorFaceAnalysis, get_providers, serialized
 # ---
 import scripts.reactor_sfw as sfw
 # ---
@@ -50,21 +51,11 @@ except:
     except:
         models_path = os.path.abspath("models")
 
-import warnings
-
-np.warnings = warnings
-np.warnings.filterwarnings('ignore')
-
-
 DEVICE = get_Device()
-if DEVICE == "CUDA":
-    PROVIDERS = ["CUDAExecutionProvider"]
-else:
-    PROVIDERS = ["CPUExecutionProvider"]
+PROVIDERS = get_providers(DEVICE)
 
 # ---
 NSFWDET_MODEL_PATH = os.path.join(models_path, "nsfw_detector","vit-base-nsfw-detector")
-check_nsfwdet_model(NSFWDET_MODEL_PATH)
 # ---
 
 @dataclass
@@ -113,6 +104,8 @@ ANALYSIS_MODEL = None
 MASK_MODEL = None
 
 CURRENT_FS_MODEL_PATH = None
+CURRENT_FS_PROVIDERS = None
+CURRENT_ANALYSIS_PROVIDERS = None
 CURRENT_MASK_MODEL_PATH = None
 
 SOURCE_FACES = None
@@ -122,24 +115,28 @@ TARGET_IMAGE_HASH = None
 SOURCE_FACES_LIST = []
 SOURCE_IMAGE_LIST_HASH = []
 
+@serialized
 def clear_faces():
     global SOURCE_FACES, SOURCE_IMAGE_HASH
     SOURCE_FACES = None
     SOURCE_IMAGE_HASH = None
     logger.status("Source Images Hash has been reset (for Single Source or Face Model)")
 
+@serialized
 def clear_faces_list():
     global SOURCE_FACES_LIST, SOURCE_IMAGE_LIST_HASH
     SOURCE_FACES_LIST = []
     SOURCE_IMAGE_LIST_HASH = []
     logger.status("Source Images Hash has been reset (for Multiple or Folder Source)")
 
+@serialized
 def clear_faces_target():
     global TARGET_FACES, TARGET_IMAGE_HASH
     TARGET_FACES = None
     TARGET_IMAGE_HASH = None
     logger.status("Target Images Hash has been reset")
 
+@serialized
 def clear_faces_all():
     global SOURCE_FACES, SOURCE_IMAGE_HASH, SOURCE_FACES_LIST, SOURCE_IMAGE_LIST_HASH, TARGET_FACES, TARGET_IMAGE_HASH
     SOURCE_FACES = None
@@ -151,20 +148,25 @@ def clear_faces_all():
     logger.status("All Images Hash has been reset")
 
 def getAnalysisModel():
-    global ANALYSIS_MODEL
-    if ANALYSIS_MODEL is None:
-        ANALYSIS_MODEL = insightface.app.FaceAnalysis(
+    global ANALYSIS_MODEL, CURRENT_ANALYSIS_PROVIDERS
+    if ANALYSIS_MODEL is None or CURRENT_ANALYSIS_PROVIDERS != tuple(PROVIDERS):
+        ANALYSIS_MODEL = ReActorFaceAnalysis(
             name="buffalo_l", providers=PROVIDERS, root=os.path.join(models_path, "insightface") # note: allowed_modules=['detection', 'genderage']
         )
+        CURRENT_ANALYSIS_PROVIDERS = tuple(PROVIDERS)
     return ANALYSIS_MODEL
 
 
 def getFaceSwapModel(model_path: str):
     global FS_MODEL
-    global CURRENT_FS_MODEL_PATH
-    if CURRENT_FS_MODEL_PATH is None or CURRENT_FS_MODEL_PATH != model_path:
+    global CURRENT_FS_MODEL_PATH, CURRENT_FS_PROVIDERS
+    if FS_MODEL is None or CURRENT_FS_MODEL_PATH != model_path or CURRENT_FS_PROVIDERS != tuple(PROVIDERS):
+        loaded = insightface.model_zoo.get_model(model_path, providers=PROVIDERS)
+        if loaded is None:
+            raise ValueError(f"Unsupported face swap model: {model_path}")
+        FS_MODEL = loaded
         CURRENT_FS_MODEL_PATH = model_path
-        FS_MODEL = insightface.model_zoo.get_model(model_path, providers=PROVIDERS)
+        CURRENT_FS_PROVIDERS = tuple(PROVIDERS)
 
     return FS_MODEL
 
@@ -308,17 +310,14 @@ def half_det_size(det_size):
     logger.status("Trying to halve 'det_size' parameter")
     return (det_size[0] // 2, det_size[1] // 2)
 
+@serialized
 def analyze_faces(img_data: np.ndarray, det_size=(640, 640), det_thresh=0.5, det_maxnum=0):
     logger.info("Applied Execution Provider: %s", PROVIDERS[0])
-    face_analyser = copy.deepcopy(getAnalysisModel())
-    face_analyser.prepare(ctx_id=0, det_thresh=det_thresh, det_size=det_size)
+    face_analyser = getAnalysisModel()
+    face_analyser.prepare(ctx_id=0 if "CUDAExecutionProvider" in PROVIDERS else -1, det_thresh=det_thresh, det_size=det_size)
     return face_analyser.get(img_data, max_num=det_maxnum)
 
 def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640), gender_source=0, gender_target=0, det_thresh=0.5, det_maxnum=0):
-
-    buffalo_path = os.path.join(models_path, "insightface/models/buffalo_l.zip")
-    if os.path.exists(buffalo_path):
-        os.remove(buffalo_path)
 
     face_age = "None"
     try:
@@ -360,18 +359,25 @@ def get_face_single(img_data: np.ndarray, face, face_index=0, det_size=(640, 640
 
 # ---
 def check_sfw_image(img: Image.Image):
-    tmp_img = "reactor_tmp.png"
     if check_process_halt():
         return None
-    img.save(tmp_img)
-    if not sfw.nsfw_image(tmp_img, NSFWDET_MODEL_PATH):
-        if os.path.exists(tmp_img):
-            os.remove(tmp_img)
-        return img
-    return None
+    check_nsfwdet_model(NSFWDET_MODEL_PATH)
+    tmp_img = None
+    try:
+        with tempfile.NamedTemporaryFile(prefix="reactor-", suffix=".png", delete=False) as handle:
+            tmp_img = handle.name
+        img.save(tmp_img)
+        return img if not sfw.nsfw_image(tmp_img, NSFWDET_MODEL_PATH) else None
+    finally:
+        if tmp_img:
+            try:
+                os.remove(tmp_img)
+            except FileNotFoundError:
+                pass
 # ---
 
 
+@serialized
 def swap_face(
     source_img: Image.Image,
     target_img: Image.Image,
@@ -395,17 +401,19 @@ def swap_face(
     global SOURCE_FACES, SOURCE_IMAGE_HASH, TARGET_FACES, TARGET_IMAGE_HASH, PROVIDERS, SOURCE_FACES_LIST, SOURCE_IMAGE_LIST_HASH
 
     result_image = target_img
+    multiple_sources = (select_source == 0 and source_imgs is not None) or select_source == 2
+    empty_result = [] if multiple_sources else result_image
 
     # ---
     logger.status("Checking for any unsafe content")
     if check_sfw_image(result_image) is None:
-        return result_image, [], 0
+        return empty_result, [], 0
     # ---
 
-    PROVIDERS = ["CUDAExecutionProvider"] if device == "CUDA" else ["CPUExecutionProvider"]
+    PROVIDERS = get_providers(device)
     
     if check_process_halt():
-        return result_image, [], 0
+        return empty_result, [], 0
     
     if model is not None:
 
@@ -440,13 +448,14 @@ def swap_face(
 
             if random_image and select_source == 2:
                 source_images,source_images_names = get_random_image_from_folder(source_folder)
-                logger.status(f"Processing with Random Image from the folder: {source_images_names[0]}")
+                if source_images_names:
+                    logger.status(f"Processing with Random Image from the folder: {source_images_names[0]}")
             else:
                 source_images,source_images_names = get_images_from_folder(source_folder) if select_source == 2 else get_images_from_list(source_imgs)
 
+            source_img_ff = []
+            source_faces_ff = []
             if len(source_images) > 0:
-                source_img_ff = []
-                source_faces_ff = []
                 for i, source_image in enumerate(source_images):
 
                     source_image = cv2.cvtColor(np.array(source_image), cv2.COLOR_RGB2BGR)
@@ -658,7 +667,10 @@ def swap_face(
     
     return result_image, [], 0
 
+@serialized
 def build_face_model(image: Image.Image, name: str, save_model: bool = True, det_size=(640, 640)):
+    global PROVIDERS
+    PROVIDERS = get_providers(get_Device())
     if image is None:
         error_msg = "Please load an Image"
         logger.error(error_msg)
@@ -692,6 +704,7 @@ def build_face_model(image: Image.Image, name: str, save_model: bool = True, det
         logger.error(no_face_msg)
         return no_face_msg
 
+@serialized
 def blend_faces(images_list: List, name: str, compute_method: int = 0, shape_check: bool = False, is_api: bool = False):
     faces = []
     embeddings = []
