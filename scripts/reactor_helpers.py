@@ -8,8 +8,10 @@ import hashlib
 import torch
 from safetensors.torch import save_file, safe_open
 from insightface.app.common import Face
+# ---
 from tqdm import tqdm
 import urllib.request
+# ---
 
 from modules.images import FilenameGenerator, get_next_sequence_number
 from modules import shared, script_callbacks
@@ -239,6 +241,7 @@ def get_images_from_list(imgs: List):
     return images,images_names
     # return [Image.open(os.path.abspath(x.name)) for x in imgs],[os.path.basename(x.name) for x in imgs]
 
+# ---
 def download(url, path, name):
     request = urllib.request.urlopen(url)
     total = int(request.headers.get('Content-Length', 0))
@@ -259,3 +262,4 @@ def check_nsfwdet_model(path: str):
             model_name = os.path.basename(model_url)
             model_path = os.path.join(path, model_name)
             download(model_url, model_path, model_name)
+# ---
